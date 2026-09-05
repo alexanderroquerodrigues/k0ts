@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "dedup.h"
+#include "log.h"
 
 static unsigned long hash_str(const char *s) {
     /* FNV-1a */
@@ -37,7 +38,7 @@ int dedup_insert(dedup_set_t *set, const char *bid_id) {
     unsigned long h = hash_str(bid_id) % set->nbuckets;
     for (dedup_node_t *n = set->buckets[h]; n; n = n->next) {
         if (strcmp(n->bid_id, bid_id) == 0) {
-            fprintf(stderr, "[dedup] bid_id=%s already processed, dropping duplicate\n", bid_id);
+            LOG("[dedup] bid_id=%s already processed, dropping duplicate\n", bid_id);
             return 0;
         }
     }
@@ -46,6 +47,6 @@ int dedup_insert(dedup_set_t *set, const char *bid_id) {
     n->next = set->buckets[h];
     set->buckets[h] = n;
     set->count++;
-    fprintf(stderr, "[dedup] bid_id=%s recorded (total processed=%zu)\n", bid_id, set->count);
+    LOG("[dedup] bid_id=%s recorded (total processed=%zu)\n", bid_id, set->count);
     return 1;
 }

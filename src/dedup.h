@@ -5,9 +5,7 @@
 
 /*
  * processed_bid_ids: a plain chained hash set of bid_id strings.
- * Deliberately simple per desc.md #10 -- "does not need to be sophisticated".
- * Grows unbounded for the process lifetime; fine for an interview, not for
- * a long-running production node (see DESIGN.md).
+ * Grows unbounded for the process lifetime. Needs to be reworked later.
  */
 
 typedef struct dedup_node {
