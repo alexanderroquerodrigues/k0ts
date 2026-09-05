@@ -1,0 +1,95 @@
+DESIGN - the auction nobody can see
+
+CLIENT PROTOCOL (newline-delimited, one TCP port per node)
+  REGISTER <name>  -> OK REGISTERED
+  BID <amount>     -> OK ACCEPTED | REJECTED
+  STATUS           -> CURRENT <amount> <bidder>   (or CURRENT 0 none)
+  CLOSE            -> OK CLOSED  (broadcasts AUCTION CLOSED / WINNER to
+                      clients on this node only; not replicated to peers)
+REGISTER is required before BID.
+
+PEER PROTOCOL (newline-delimited, port = client_port + 10000)
+  BID <bid_id> <bidder> <amount>      replicated bid; tie-broken, deduped
+  SYNC                                 "send me your current state"
+  CURRENT <bid_id> <bidder> <amount>  reply to SYNC / sent on connect
+Bid ids are <node_id>:<seq> (per-node counter) so they're globally unique.
+
+PROCESS LAYOUT
+  argv: ./auction <node_id> <client_port> [peer_client_port ...]
+  Listens for clients on client_port, for peers on client_port+10000.
+  Each extra argv entry is another node's client_port; we actively connect
+  out to its peer port. Full mesh required (every node lists every other
+  node) - no gossip/flooding, only direct links. 
+  Duplicate links are harmless (deduped) but wasteful.
+
+DATA STRUCTURES
+  auction_state_t (state.h/.c) - highest amount, bidder, bid_id, closed
+    flag, tie-break rule. Pure logic, no sockets.
+  dedup_set_t (dedup.h/.c) - chained hash set of applied bid_ids. Pure
+    logic, no sockets. Grows unbounded for process lifetime - fine for an
+    8h interview, not production.
+  conn_t (main.c) - one per fd: client/peer, listening/established, a
+    growable input buffer (framing) and growable output buffer + write
+    offset (backpressure).
+
+EVENT LOOP
+  Single epoll(), level-triggered, non-blocking sockets everywhere.
+    accept on client/peer listeners
+    EPOLLIN  -> recv into inbuf, extract '\n'-lines, parse+handle
+    EPOLLOUT -> flush outbuf (drain what the kernel takes)
+    EPOLLERR/HUP -> close conn; for peers, schedule reconnect
+  Nothing in the request path blocks on peer send()/connect() - replication
+  is enqueued onto that peer's outbuf and drained by EPOLLOUT. A slow peer
+  just grows its own outbuf; it can't stall the loop or other connections.
+  Peer reconnection: a periodic epoll_wait timeout checks every iteration
+  for down peer connections whose retry timer elapsed, then fires a fresh
+  non-blocking connect().
+
+TCP FRAMING
+  Every recv() appends to conn->inbuf; scan for '\n' after every append,
+  dispatch each complete line, compact the buffer. A command may span
+  multiple recv()s; multiple commands may arrive in one recv(). Never
+  assume recv() == one command.
+
+BID REPLICATION PATH (the central requirement)
+  client BID 500 on node A
+    -> validate (registered? not closed?)
+    -> apply to local auction_state_t, get new bid_id A:<seq>
+    -> respond OK ACCEPTED / REJECTED to the client immediately
+    -> append "BID A:<seq> alice 500\n" to every peer conn's outbuf
+    -> return to epoll_wait - no waiting on peers
+
+CONFLICT RESOLUTION (deterministic)
+  higher amount wins.
+  equal amount -> lexicographically larger bid_id wins.
+  Applied identically for local and replicated bids, so every node that
+  has seen the same set of bids converges to the same winner regardless
+  of arrival order.
+
+DUPLICATE / OUT-OF-ORDER REPLICATION
+  Duplicate: dedup_set checked before applying a replicated bid; already-
+    applied bid_id is a no-op (peer protocol is fire-and-forget, no ack).
+  Out-of-order: applying a bid is just "does it beat the current highest
+    by the tie-break rule" - commutative and idempotent, so A:102 then
+    A:101 arriving later gives the same final state as the reverse order.
+    No sequencing/reassembly needed.
+
+FAILURE / RECOVERY
+  A dead peer socket (recv()==0/error, or failed connect) is closed; the
+  node keeps serving clients unaffected.
+  On (re)connect, both sides send SYNC and reply with CURRENT <bid_id>
+  <bidder> <amount> of their local state. CURRENT goes through the same
+  tie-break + dedup path as a live BID, so a node that missed bids while
+  disconnected converges once the link returns - as long as some
+  reachable node still remembers that bid as its current highest. Not a
+  durable log: a bid that was beaten and later forgotten (superseded, then
+  its original holder crashes before telling anyone) can't be replayed.
+  Good enough here; production would need a persistent, replayable
+  per-node event log.
+
+AUCTION CLOSE
+  CLOSE marks only this node closed and broadcasts AUCTION CLOSED /
+  WINNER <bidder> <amount> to clients on this node. Not propagated to
+  peers - closure only needs to be authoritative on one designated server
+  for this exercise. Production would need consensus (or at least
+  replicate-and-fence future bids) so every node agrees the auction is over.

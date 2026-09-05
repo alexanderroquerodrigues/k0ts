@@ -1,0 +1,100 @@
+HAMMER & VANE - FINE ART AUCTIONEERS
+Systems Brief for the Saleroom Linking Project
+
+THE SETTING
+
+Hammer & Vane runs a single sale across three salerooms at once: London,
+New York, and Hong Kong. A single lot goes under the hammer at the same
+moment in all three rooms. Floor bidders raise paddles in front of the
+auctioneer; phone bidders are relayed by an assistant standing at a desk
+with a headset; absentee bids are already on file. Whichever room the
+winning bid actually comes from, the house needs one true final price and
+one true buyer for that lot, and every room's paperwork has to agree on it
+by the time invoices go out.
+
+Each saleroom runs its own desk terminal, wired to a small back-room
+machine we're calling "the block." Your job is to write the software that
+runs on the block. One per city. Three cities, three blocks,
+talking to each other over the same ordinary lines the terminals use.
+
+THE GOLDEN RULE
+
+The auctioneer in London cannot be kept waiting because Hong Kong's line
+is slow tonight. If the London desk takes a bid, the London auctioneer
+must hear "bid accepted" back immediately - not after New York and Hong
+Kong have been told about it, and not after they've acknowledged it. Tell
+the other rooms about the bid, certainly, but do it quietly, in the
+background, and let the auctioneer get on with the sale regardless of how
+long that takes.
+
+A slow or silent room down the line must never be the reason a fast room's
+paddle count stalls.
+
+THE DESK TERMINAL
+
+A terminal is any device that can hold open a plain text connection to the
+block and send it lines of text, one instruction per line. Assume the desk
+might send you a whole burst of instructions stitched together, or might
+send you a single instruction one keystroke at a time because the line is
+poor tonight - your block has to make sense of either.
+
+The instructions a desk sends:
+
+  PADDLE <number>        register this connection as a bidder's paddle
+  BID <amount>           raise a bid
+  STANDING               ask what the current highest bid is, and who holds it
+  HAMMER                 the auctioneer has closed the lot at this desk
+
+What the block replies:
+
+  PADDLE OK
+  BID OK  /  BID NO
+  CURRENT <amount> <paddle>
+  HAMMER DOWN, SOLD <amount> to <paddle>
+
+A desk that hasn't registered a paddle can't bid. A bid that doesn't beat
+the current price is refused, politely, not with a crash.
+
+THE COMPLICATIONS
+
+Business does not wait for the network to be tidy:
+
+- Two rooms can each take what looks, from where they're standing, like
+  the new high bid - at the exact same instant, for the exact same
+  amount, from two different paddles in two different cities. The house
+  has a standing rule for exactly this, written into the conditions of
+  sale, and it must produce the same answer no matter which room's
+  ledger you read it from afterward: whichever of the two bids carries
+  the later reference number, by plain string comparison, is the one
+  that stood. Every block must apply this rule identically, without
+  needing to ask a person.
+
+- An assistant relaying a phone bid may repeat themselves down a bad
+  line, so the same bid can reach a block twice. It must only ever be
+  counted once.
+
+- News of a bid can arrive at a block out of the order it actually
+  happened in, because one line runs faster than another tonight. The
+  block should not assume it heard about bids in the order they occurred
+  - it should still land on the right final price regardless of the
+  order the news arrived in.
+
+- Hong Kong's line to the other two rooms can drop mid-lot and come back
+  five minutes later. While it's down, London and New York carry on
+  without it. When it comes back, Hong Kong needs to be brought up to
+  the current price on its own, without anyone re-keying anything by
+  hand.
+
+- "HAMMER DOWN" only needs to be true for the room that called it. We are
+  not asking you to make all three rooms agree on the close of the lot in
+  the same instant - that is a harder problem than this brief covers, and
+  we want you to notice that it's a limitation and be able to say so, not
+  solve it.
+
+WHAT WE WILL ASK YOU TO EXPLAIN
+
+Once it's working, walk us through, in order, everything that happens
+inside your program from the moment London's terminal sends "BID 4200"
+to the moment New York and Hong Kong both know about it - including what
+you did to make sure London's auctioneer never felt Hong Kong's slow
+line, and what would go wrong if you'd built it any other way.
